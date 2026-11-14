@@ -26,4 +26,25 @@ New-Item -ItemType Directory -Force $Destination | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "tar could not extract $($asset.name)" }
 Remove-Item -Recurse -Force $tmp
 if (-not (Test-Path (Join-Path $Destination "mpv.exe"))) { throw "mpv.exe missing after extract" }
+
+# The build is GPL and ships without its license text. An installer that bundles it
+# must carry the license and say where the matching source is, so record both.
+$commit = if ($asset.name -match 'git-([0-9a-f]+)\.7z$') { $Matches[1] } else { "master" }
+Invoke-WebRequest -Headers @{ "User-Agent" = "silolux-windows-build" } `
+  -Uri "https://raw.githubusercontent.com/mpv-player/mpv/$commit/LICENSE.GPL" `
+  -OutFile (Join-Path $Destination "LICENSE.GPL.txt")
+@"
+mpv, bundled with Silolux for Windows as a separate program.
+Silolux starts it as a player; it is not part of Silolux's own MIT-licensed code.
+
+Build:   $($asset.name)
+From:    $($release.html_url)
+License: GNU GPL, see LICENSE.GPL.txt in this folder. The build includes
+         GPL-licensed libraries (FFmpeg and others) under their own licenses.
+
+Source code for this exact build:
+  mpv:            https://github.com/mpv-player/mpv/tree/$commit
+  build scripts:  https://github.com/shinchiro/mpv-winbuild-cmake
+                  (the scripts list every library and version they compile)
+"@ | Set-Content -Encoding utf8 (Join-Path $Destination "SOURCE.txt")
 Write-Host "mpv is in $Destination"

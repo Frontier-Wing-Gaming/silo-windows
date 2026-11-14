@@ -85,3 +85,36 @@ pub fn playback_context(os_version: &str) -> Value {
         }
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_speaks_protocol_v3_with_all_three_deliveries() {
+        let ctx = playback_context("10.0.26100");
+        assert_eq!(ctx["protocol_version"], 3);
+        assert_eq!(ctx["device"]["platform"], "windows");
+        for d in ["original_http", "progressive", "hls"] {
+            assert_eq!(ctx["deliveries"][d]["enabled"], true, "{d} enabled");
+        }
+    }
+
+    #[test]
+    fn hls_makes_no_track_or_range_claims() {
+        // The claims say mpv picks the audio track and tone-maps by itself; HLS
+        // renditions are prepared by the server, so claiming them there would lie.
+        let ctx = playback_context("x");
+        assert_eq!(ctx["deliveries"]["hls"]["validated_claims"], json!([]));
+        let original = ctx["deliveries"]["original_http"]["validated_claims"].as_array().unwrap();
+        assert!(original.iter().any(|c| c == "client_selected_audio_track_v1"));
+    }
+
+    #[test]
+    fn capabilities_are_declared_not_attested() {
+        let caps = client_capabilities();
+        assert_eq!(caps["video_evidence"], "declared");
+        assert_eq!(caps["audio_evidence"], "declared");
+        assert!(caps["codecs_video"].as_array().unwrap().iter().any(|c| c == "hevc"));
+    }
+}

@@ -60,13 +60,21 @@ impl AppState {
 }
 
 fn normalize_server(input: &str) -> Result<Url, String> {
-    let trimmed = input.trim().trim_end_matches('/');
-    let with_scheme = if trimmed.contains("://") { trimmed.to_string() } else { format!("http://{trimmed}") };
-    let url = Url::parse(&format!("{with_scheme}/")).map_err(|e| format!("That address is not valid: {e}"))?;
-    match url.scheme() {
-        "http" | "https" => Ok(url),
-        _ => Err("Use an http:// or https:// address.".into()),
+    // Decide on the scheme before touching slashes, so a bare "http://" is
+    // rejected instead of becoming a server named "http".
+    let input = input.trim();
+    let with_scheme = if input.contains("://") { input.to_string() } else { format!("http://{input}") };
+    let mut url = Url::parse(&with_scheme).map_err(|e| format!("That address is not valid: {e}"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("Use an http:// or https:// address.".into());
     }
+    if url.host_str().is_none_or(str::is_empty) {
+        return Err("That address has no server name.".into());
+    }
+    // The base is joined with relative API paths, so it must end in a slash.
+    let path = format!("{}/", url.path().trim_end_matches('/'));
+    url.set_path(&path);
+    Ok(url)
 }
 
 /// Lets the server's own pages reach the bridge commands. Only that origin
@@ -254,4 +262,21 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running Silolux");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_server;
+
+    #[test]
+    fn adds_http_and_a_trailing_slash() {
+        assert_eq!(normalize_server(" 192.168.0.10:8090 ").unwrap().as_str(), "http://192.168.0.10:8090/");
+        assert_eq!(normalize_server("https://media.example/silo/").unwrap().as_str(), "https://media.example/silo/");
+    }
+
+    #[test]
+    fn rejects_other_schemes_and_garbage() {
+        assert!(normalize_server("ftp://media.example").is_err());
+        assert!(normalize_server("http://").is_err());
+    }
 }

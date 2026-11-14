@@ -351,3 +351,17 @@ fn os_version() -> String {
         .and_then(|s| s.split("Version ").nth(1).map(|v| v.trim().trim_end_matches(']').to_string()))
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::display_title;
+    use serde_json::json;
+
+    #[test]
+    fn episodes_show_series_and_numbers() {
+        let ep = json!({ "title": "Pilot", "series_title": "Test Show", "season_number": 1, "episode_number": 2 });
+        assert_eq!(display_title(&ep), "Test Show S1E2 · Pilot");
+        assert_eq!(display_title(&json!({ "title": "Heat" })), "Heat");
+        assert_eq!(display_title(&json!({})), "Silolux");
+    }
+}

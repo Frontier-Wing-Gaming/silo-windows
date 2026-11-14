@@ -198,3 +198,30 @@ pub fn device_name() -> String {
 pub fn is_status(err: &anyhow::Error, status: u16) -> bool {
     err.downcast_ref::<ApiError>().is_some_and(|e| e.status.as_u16() == status)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn client(base: &str) -> Client {
+        Client::new(Url::parse(base).unwrap(), "test-device".into()).unwrap()
+    }
+
+    #[test]
+    fn credentials_stay_on_the_server_origin() {
+        let c = client("http://192.168.0.10:8090/");
+        assert!(c.same_origin(&Url::parse("http://192.168.0.10:8090/api/v2/stream/x").unwrap()));
+        // Another port, scheme or host is another origin: a transcode node or a
+        // proxy named in a playback plan must never get the account token.
+        assert!(!c.same_origin(&Url::parse("http://192.168.0.10:9000/stream").unwrap()));
+        assert!(!c.same_origin(&Url::parse("https://192.168.0.10:8090/stream").unwrap()));
+        assert!(!c.same_origin(&Url::parse("http://node.example:8090/stream").unwrap()));
+    }
+
+    #[test]
+    fn relative_paths_join_onto_the_server() {
+        let c = client("https://media.example/silo/");
+        assert_eq!(c.url("api/v2/system/info").unwrap().as_str(), "https://media.example/silo/api/v2/system/info");
+        assert_eq!(c.url("/api/v2/system/info").unwrap().as_str(), "https://media.example/api/v2/system/info");
+    }
+}

@@ -46,6 +46,16 @@ npm run build    # NSIS + MSI installers in src-tauri/target/release/bundle
 The app looks for mpv in this order: `mpv_path` in `config.json`, then the bundled `mpv\` folder,
 then `PATH`. With no mpv, Play falls through to the web player.
 
+`cargo test` (in `src-tauri`) runs the unit tests: server address parsing, the rule that account
+credentials only go to the server's own origin, and the playback capabilities the app declares.
+
+## Releases
+
+Set the version in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, then push a tag such as
+`v0.2.0`. The Release workflow fetches mpv, builds the MSI and NSIS installers, and attaches them
+to a draft GitHub release for you to review and publish. The installers are not code-signed, so
+Windows SmartScreen warns on first run.
+
 ## Known gaps
 
 - mpv opens in its own fullscreen window. The next step is embedding it with `--wid`.
@@ -61,4 +71,6 @@ then `PATH`. With no mpv, Play falls through to the web player.
 
 ## License
 
-MIT; see [LICENSE](LICENSE). mpv is not part of this repository and has its own GPL license: if you bundle it in an installer, include its license and a link to its source.
+MIT; see [LICENSE](LICENSE). mpv is not part of this repository and has its own GPL license.
+`scripts/fetch-mpv.ps1` saves that license (`mpv/LICENSE.GPL.txt`) and the source location of the
+exact build (`mpv/SOURCE.txt`) next to mpv, so installers that bundle it carry both.
