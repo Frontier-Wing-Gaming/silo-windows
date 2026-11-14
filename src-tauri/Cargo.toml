@@ -3,7 +3,7 @@ name = "silolux-windows"
 version = "0.1.0"
 description = "Silolux: a Silo client for Windows with native mpv playback"
 edition = "2021"
-license = "AGPL-3.0-or-later"
+license = "MIT"
 publish = false
 
 [lib]

@@ -57,8 +57,8 @@ then `PATH`. With no mpv, Play falls through to the web player.
   A small upstream hook in `WatchRoute` (for example `window.siloNativePlayer?.play(request)`)
   would make this robust. The bridge's `pushState` fallback briefly mounts the web player and
   holds its start request.
-- Not tested end to end against a live server yet.
+- Tested only against a local Docker Silo server so far.
 
 ## License
 
-AGPL-3.0-or-later, matching Silo. mpv builds are GPL; ship their license with the installer.
+MIT; see [LICENSE](LICENSE). mpv is not part of this repository and has its own GPL license: if you bundle it in an installer, include its license and a link to its source.
