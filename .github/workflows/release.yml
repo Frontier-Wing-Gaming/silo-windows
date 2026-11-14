@@ -36,6 +36,8 @@ jobs:
       # Bundles mpv with its GPL license and source pointers (mpv/LICENSE.GPL.txt, mpv/SOURCE.txt).
       - name: Fetch mpv
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/fetch-mpv.ps1
 
       - name: Build installers

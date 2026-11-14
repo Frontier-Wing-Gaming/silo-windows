@@ -4,7 +4,11 @@
 param([string]$Destination = (Join-Path (Split-Path $PSScriptRoot -Parent) "mpv"))
 
 $ErrorActionPreference = "Stop"
-$release = Invoke-RestMethod -Headers @{ "User-Agent" = "silolux-windows-build" } `
+# Anonymous API calls share a 60/hour limit per IP, which hosted CI runners exhaust; send
+# a token when there is one (the release workflow passes GITHUB_TOKEN).
+$apiHeaders = @{ "User-Agent" = "silolux-windows-build" }
+if ($env:GITHUB_TOKEN) { $apiHeaders["Authorization"] = "Bearer $env:GITHUB_TOKEN" }
+$release = Invoke-RestMethod -Headers $apiHeaders `
   -Uri "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
 $asset = $release.assets |
   Where-Object { $_.name -match '^mpv-x86_64-v3-\d{8}-git-[0-9a-f]+\.7z$' } |
