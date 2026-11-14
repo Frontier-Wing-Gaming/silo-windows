@@ -109,9 +109,9 @@ impl Player {
             "client_capabilities": capabilities::client_capabilities(),
             "client_playback_context": capabilities::playback_context(&os_version()),
         });
-        if start_position > 0.0 {
-            body["start_position"] = json!(start_position);
-        }
+        // Always sent, 0 included: without it the server resumes from the saved position, which
+        // turned "Play from start" into another resume.
+        body["start_position"] = json!(start_position.max(0.0));
         if req.file_id.is_some() {
             body["allow_alternate_versions"] = json!(false);
         }
@@ -219,6 +219,12 @@ impl Player {
             .arg("--fullscreen")
             .arg("--keep-open=no")
             .arg("--hwdec=auto-safe")
+            // A PC can't switch its refresh rate per film, so 24 fps on a 60 Hz screen shows frames
+            // in an uneven 3:2 pattern (judder on pans). Timing frames to the display and blending
+            // only the frames that straddle a refresh (oversample) smooths it with no visible blur.
+            .arg("--video-sync=display-resample")
+            .arg("--interpolation=yes")
+            .arg("--tscale=oversample")
             .arg("--osc=yes")
             .arg("--input-default-bindings=yes")
             .arg(format!("--title={title} — Silolux"))
