@@ -5,7 +5,7 @@ server's own web app in a WebView2 window and plays video in **mpv**, so most fi
 (HEVC, AV1, TrueHD, DTS, ASS subtitles, HDR tone-mapped to SDR) instead of being transcoded for a
 browser.
 
-Status: early prototype, `0.1.0`.
+Status: early prototype, `0.2.0`.
 
 Silolux is an independent project by Frontier Wing Gaming. It is not made, endorsed or supported
 by Silo Media L.L.C.; "Silo" is their trademark and is used here only to say what this app connects to.
@@ -30,7 +30,14 @@ by Silo Media L.L.C.; "Silo" is their trademark and is used here only to say wha
   through sequenced `/progress` calls, with a stop when mpv closes. Positions use the plan's
   `timeline_offset_seconds`. Credentials go only to the server's own origin. Node and proxy URLs
   rely on their signed `st` reference. Sidecar subtitles are downloaded by the app and passed to
-  mpv as local files.
+  mpv as local files. Play from start always sends `start_position` 0 (the server would
+  otherwise resume).
+- **Recovery.** mpv runs with `--idle=yes`, so a stream it can't open leaves it waiting instead
+  of closing. The app then asks for a `failure_recovery` replan at the current position and loads
+  the new plan into the same window, up to four plans per title.
+- **Smooth film on a fixed refresh rate.** A PC can't switch its refresh rate per film, so 24 fps
+  on a 60 Hz screen judders. mpv runs with `--video-sync=display-resample --interpolation=yes
+  --tscale=oversample`, which blends only the frames that straddle a refresh.
 
 ## Build
 
@@ -59,15 +66,16 @@ Windows SmartScreen warns on first run.
 ## Known gaps
 
 - mpv opens in its own fullscreen window. The next step is embedding it with `--wid`.
-- No replan on failure yet. mpv rarely needs one, but quality changes and track changes made in
-  mpv are not reported to the server.
+- Audio and subtitle tracks changed in mpv are not reported to the server, so the next title
+  starts with the server's default again. mpv has no quality menu; the server's *auto* quality
+  applies.
 - PIN profiles use the web app's `X-Profile-Token`. If the server ties that token to the web
   session, playback returns 403.
 - Interception depends on the web app's URLs (`/watch/:id`, `fileId`, `libraryId`, `restart`).
   A small upstream hook in `WatchRoute` (for example `window.siloNativePlayer?.play(request)`)
   would make this robust. The bridge's `pushState` fallback briefly mounts the web player and
   holds its start request.
-- Tested only against a local Docker Silo server so far.
+- Tested against a local Docker Silo server and a remote one.
 
 ## Privacy
 
