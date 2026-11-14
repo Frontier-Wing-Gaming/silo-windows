@@ -69,6 +69,10 @@ Windows SmartScreen warns on first run.
   holds its start request.
 - Tested only against a local Docker Silo server so far.
 
+## Privacy
+
+The app sends data only to the Silo server you enter; see [PRIVACY.md](PRIVACY.md).
+
 ## License
 
 MIT; see [LICENSE](LICENSE). mpv is not part of this repository and has its own GPL license.
