@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Silolux</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d0e12;
+        --panel: #16181f;
+        --line: #2a2d38;
+        --text: #eceef3;
+        --muted: #9aa0ae;
+        --accent: #7c8cff;
+        --danger: #ff8a8a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; display: grid; place-items: center;
+        background: radial-gradient(1200px 600px at 50% -10%, #1c2040 0%, var(--bg) 60%);
+        color: var(--text); font: 15px/1.5 "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+      }
+      main { width: min(440px, calc(100vw - 32px)); }
+      .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+      .brand img { width: 44px; height: 44px; border-radius: 10px; }
+      h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
+      p.lead { margin: 0 0 22px; color: var(--muted); }
+      form { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+      label { display: block; font-weight: 600; margin-bottom: 8px; }
+      input {
+        width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line);
+        background: #0f1117; color: var(--text); font: inherit;
+      }
+      input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      .hint { color: var(--muted); font-size: 13px; margin: 8px 0 18px; }
+      button {
+        width: 100%; padding: 12px; border: 0; border-radius: 10px; background: var(--accent);
+        color: #0b0c10; font: 600 15px/1 inherit; cursor: pointer;
+      }
+      button:disabled { opacity: .6; cursor: progress; }
+      .error { color: var(--danger); margin-top: 14px; min-height: 1.5em; font-size: 14px; }
+      footer { margin-top: 18px; color: var(--muted); font-size: 12px; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <img src="icon.png" alt="" />
+        <h1>Silolux</h1>
+      </div>
+      <p class="lead">Connect to your Silo server. Video plays in mpv, so most files play without transcoding.</p>
+      <form id="connect">
+        <label for="address">Server address</label>
+        <input id="address" name="address" autocomplete="url" spellcheck="false"
+               placeholder="http://192.168.1.20:8090" required autofocus />
+        <p class="hint">The address you open Silo at in a browser.</p>
+        <button id="go" type="submit">Connect</button>
+        <p class="error" id="error" role="alert"></p>
+      </form>
+      <footer id="version"></footer>
+    </main>
+    <script>
+      const { invoke } = window.__TAURI__.core;
+      const form = document.getElementById("connect");
+      const input = document.getElementById("address");
+      const button = document.getElementById("go");
+      const error = document.getElementById("error");
+
+      invoke("launcher_state").then((s) => {
+        if (s.server_url) input.value = s.server_url;
+        document.getElementById("version").textContent = `Silolux ${s.version} · a Silo client`;
+      });
+
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        error.textContent = "";
+        button.disabled = true;
+        button.textContent = "Connecting…";
+        try {
+          await invoke("connect", { address: input.value });
+        } catch (e) {
+          error.textContent = String(e);
+          button.disabled = false;
+          button.textContent = "Connect";
+        }
+      });
+    </script>
+  </body>
+</html>
