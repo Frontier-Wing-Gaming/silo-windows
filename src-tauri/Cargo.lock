@@ -3197,7 +3197,7 @@ dependencies = [
 
 [[package]]
 name = "silolux-windows"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "log",
@@ -3209,6 +3209,8 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
+ "webview2-com",
+ "windows-core",
 ]
 
 [[package]]

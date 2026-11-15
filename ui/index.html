@@ -40,6 +40,8 @@
       }
       button:disabled { opacity: .6; cursor: progress; }
       .error { color: var(--danger); margin-top: 14px; min-height: 1.5em; font-size: 14px; }
+      .detail { color: var(--muted); margin-top: 6px; font-size: 12px; overflow-wrap: anywhere; }
+      .detail:empty { display: none; }
       footer { margin-top: 18px; color: var(--muted); font-size: 12px; text-align: center; }
     </style>
   </head>
@@ -57,6 +59,7 @@
         <p class="hint">The address you open Silo at in a browser.</p>
         <button id="go" type="submit">Connect</button>
         <p class="error" id="error" role="alert"></p>
+        <p class="detail" id="detail"></p>
       </form>
       <footer id="version"></footer>
     </main>
@@ -66,24 +69,44 @@
       const input = document.getElementById("address");
       const button = document.getElementById("go");
       const error = document.getElementById("error");
+      const detail = document.getElementById("detail");
+
+      async function connect(address, reconnecting) {
+        error.textContent = detail.textContent = "";
+        input.disabled = button.disabled = true;
+        button.textContent = reconnecting ? `Connecting to ${address}…` : "Connecting…";
+        try {
+          await invoke("connect", { address });
+        } catch (e) {
+          if (reconnecting) {
+            error.textContent = "Couldn't reach your last server. Check it's running, or connect to another one.";
+            detail.textContent = String(e);
+          } else {
+            error.textContent = String(e);
+          }
+          input.disabled = button.disabled = false;
+          button.textContent = "Connect";
+          input.focus();
+          input.select();
+        }
+      }
 
       invoke("launcher_state").then((s) => {
         if (s.server_url) input.value = s.server_url;
         document.getElementById("version").textContent = `Silolux ${s.version} · a Silo client`;
+        // At launch, straight back to the saved server if it answers.
+        if (s.reconnect) connect(s.server_url, true);
+        // Sent back here because the server stopped answering mid-session.
+        if (s.lost) {
+          error.textContent = `Lost the connection to ${s.lost.server}: ${s.lost.detail}. Check it's running and connect again, or connect to another server.`;
+          input.focus();
+          input.select();
+        }
       });
 
-      form.addEventListener("submit", async (ev) => {
+      form.addEventListener("submit", (ev) => {
         ev.preventDefault();
-        error.textContent = "";
-        button.disabled = true;
-        button.textContent = "Connecting…";
-        try {
-          await invoke("connect", { address: input.value });
-        } catch (e) {
-          error.textContent = String(e);
-          button.disabled = false;
-          button.textContent = "Connect";
-        }
+        connect(input.value, false);
       });
     </script>
   </body>

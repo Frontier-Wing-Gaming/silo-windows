@@ -5,7 +5,7 @@ server's own web app in a WebView2 window and plays video in **mpv**, so most fi
 (HEVC, AV1, TrueHD, DTS, ASS subtitles, HDR tone-mapped to SDR) instead of being transcoded for a
 browser.
 
-Status: early prototype, `0.2.0`.
+Status: early prototype, `0.2.3`.
 
 Silolux is an independent project by Frontier Wing Gaming. It is not made, endorsed or supported
 by Silo Media L.L.C.; "Silo" is their trademark and is used here only to say what this app connects to.
@@ -13,8 +13,12 @@ by Silo Media L.L.C.; "Silo" is their trademark and is used here only to say wha
 ## How it works
 
 - **Launcher.** The first run asks for the server address and checks `GET /api/v2/system/info`
-  (`api_major` must be 2). After that the window opens the server directly. Ctrl+Shift+O goes
-  back to the launcher.
+  (`api_major` must be 2). After that, each launch makes the same check on the saved server
+  and moves straight on to it if it answers; if it doesn't, the launcher stays up with the
+  error and the address, so another server can be picked. Mid-session, a server page that
+  fails to load (server down, network gone, a proxy's 5xx) leads to a check of the server, and
+  if that fails too, back to the launcher with the reason: WebView2's own error page can't run
+  the bridge, so it would leave no way out. Ctrl+Shift+O goes back to the launcher.
 - **Bridge** (`src-tauri/src/bridge.js`). This script is injected into the server's pages. It
   takes plain `/watch/:id` navigations (Play buttons and cards) and hands them to the native
   player. Watch parties (`room_id`), shuffles, audiobooks and the ebook reader stay in the web

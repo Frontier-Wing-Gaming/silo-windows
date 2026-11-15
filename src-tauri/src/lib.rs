@@ -39,6 +39,11 @@ struct AppState {
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     capabilities: Mutex<Vec<String>>,
     playing: Mutex<bool>,
+    /// Set at launch when a server is saved: the launcher reconnects to it once, and stays up
+    /// with the error if it doesn't answer.
+    reconnect: Mutex<bool>,
+    /// Why the server's pages stopped loading, for the launcher to show once.
+    lost: Mutex<Option<serde_json::Value>>,
 }
 
 impl AppState {
@@ -118,7 +123,9 @@ fn mpv_path(app: &AppHandle, cfg: &Config) -> Option<PathBuf> {
 #[tauri::command]
 fn launcher_state(state: tauri::State<AppState>) -> serde_json::Value {
     let cfg = state.config.lock().unwrap();
-    json!({ "server_url": cfg.server_url, "version": api::APP_VERSION })
+    let reconnect = std::mem::take(&mut *state.reconnect.lock().unwrap()) && cfg.server_url.is_some();
+    let lost = state.lost.lock().unwrap().take();
+    json!({ "server_url": cfg.server_url, "reconnect": reconnect, "lost": lost, "version": api::APP_VERSION })
 }
 
 #[tauri::command]
@@ -147,12 +154,111 @@ fn change_server(app: AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     state.config.lock().unwrap().server_url = None;
     state.save();
+    show_launcher(&app)
+}
+
+fn show_launcher(app: &AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("main") {
         // Where Tauri serves the bundled launcher on Windows (WebView2).
         let launcher = Url::parse("http://tauri.localhost/index.html").expect("static URL");
         w.navigate(launcher).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Whether a failed page load is worth checking the server over: a page of the saved server (not
+/// the launcher or another site) that wasn't cancelled and isn't the server's own 4xx page, which
+/// shows as usual. WebView2's error status alone can't tell a server that's down from a link that
+/// turned into a download (both can end "connection aborted"), so the caller then asks the server.
+fn server_page_failed(url: &str, server: Option<&str>, cancelled: bool, http_status: i32) -> bool {
+    let origin = |s: &str| Url::parse(s).ok().map(|u| u.origin());
+    let ours = matches!((origin(url), server.and_then(origin)), (Some(a), Some(b)) if a == b && a.is_tuple());
+    ours && !cancelled && !(400..500).contains(&http_status)
+}
+
+/// After a server page failed to load: if the server doesn't answer either, back to the launcher
+/// with the reason. Left alone, WebView2 shows its own error page, where bridge.js doesn't run: no
+/// Ctrl+Shift+O, no way to another server.
+#[cfg_attr(not(windows), allow(dead_code))]
+async fn check_server(app: AppHandle, url: String, reason: &'static str) {
+    let Ok(page) = Url::parse(&url) else { return };
+    let Ok(origin) = Url::parse(&page.origin().ascii_serialization()) else { return };
+    let device_id = app.state::<AppState>().config.lock().unwrap().device_id.clone();
+    let answered = match Client::new(origin.clone(), device_id) {
+        Ok(client) => client.system_info().await.is_ok(),
+        Err(_) => false,
+    };
+    if answered {
+        return;
+    }
+    let server = page.origin().ascii_serialization();
+    log::warn!("lost the server at {server}: {reason}");
+    *app.state::<AppState>().lost.lock().unwrap() = Some(json!({ "server": server, "detail": reason }));
+    let _ = show_launcher(&app);
+}
+
+#[cfg(windows)]
+fn watch_for_lost_server(window: &tauri::WebviewWindow) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use webview2_com::Microsoft::Web::WebView2::Win32::*;
+    use webview2_com::{take_pwstr, NavigationCompletedEventHandler};
+    use windows_core::{Interface, BOOL, PWSTR};
+
+    let app = window.app_handle().clone();
+    // One check at a time: a failed load can report more than once.
+    let checking = Arc::new(AtomicBool::new(false));
+    let _ = window.with_webview(move |webview| {
+        let Ok(core) = (unsafe { webview.controller().CoreWebView2() }) else {
+            return;
+        };
+        let handler = NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
+            let (Some(sender), Some(args)) = (sender, args) else {
+                return Ok(());
+            };
+            let mut ok = BOOL::default();
+            unsafe { args.IsSuccess(&mut ok)? };
+            if ok.as_bool() {
+                return Ok(());
+            }
+            let mut status = COREWEBVIEW2_WEB_ERROR_STATUS::default();
+            unsafe { args.WebErrorStatus(&mut status)? };
+            let mut http = 0;
+            if let Ok(args2) = args.cast::<ICoreWebView2NavigationCompletedEventArgs2>() {
+                let _ = unsafe { args2.HttpStatusCode(&mut http) };
+            }
+            let mut source = PWSTR::null();
+            unsafe { sender.Source(&mut source)? };
+            let url = take_pwstr(source);
+
+            let server = app.state::<AppState>().config.lock().unwrap().server_url.clone();
+            if !server_page_failed(&url, server.as_deref(), status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED, http) {
+                return Ok(());
+            }
+            let reason = match status {
+                COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED => "the server's name couldn't be found",
+                COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT => "the server didn't answer in time",
+                COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED => "this PC is offline",
+                COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT
+                | COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED
+                | COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS
+                | COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED
+                | COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID => "the server's certificate isn't valid",
+                _ if http >= 500 => "the server (or a proxy in front of it) answered with an error",
+                _ => "the server stopped answering",
+            };
+            if checking.swap(true, Ordering::SeqCst) {
+                return Ok(());
+            }
+            let (app, checking) = (app.clone(), checking.clone());
+            tauri::async_runtime::spawn(async move {
+                check_server(app, url, reason).await;
+                checking.store(false, Ordering::SeqCst);
+            });
+            Ok(())
+        }));
+        let mut token = 0i64;
+        let _ = unsafe { core.add_NavigationCompleted(&handler, &mut token) };
+    });
 }
 
 #[derive(Deserialize)]
@@ -235,29 +341,30 @@ pub fn run() {
             if cfg.device_id.is_empty() {
                 cfg.device_id = format!("silolux-windows-{}", uuid::Uuid::new_v4());
             }
-            let server = cfg.server_url.as_deref().and_then(|s| Url::parse(s).ok());
+            let saved = cfg.server_url.as_deref().and_then(|s| Url::parse(s).ok()).is_some();
             app.manage(AppState {
                 dir,
                 config: Mutex::new(cfg),
                 sessions: Mutex::new(HashMap::new()),
                 capabilities: Mutex::new(vec![]),
                 playing: Mutex::new(false),
+                reconnect: Mutex::new(saved),
+                lost: Mutex::new(None),
             });
             app.state::<AppState>().save();
 
-            let start = match &server {
-                Some(url) => {
-                    allow_origin(app.handle(), url);
-                    WebviewUrl::External(url.clone())
-                }
-                None => WebviewUrl::App("index.html".into()),
-            };
-            WebviewWindowBuilder::new(app, "main", start)
+            // Always the launcher first. Opening a saved server directly left a dead server on the
+            // browser engine's error page, where the app's shortcuts (Ctrl+Shift+O) don't load and
+            // no other server could be picked. The launcher checks the server answers (connect)
+            // and only then moves on.
+            let _window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("Silolux")
                 .inner_size(1440.0, 900.0)
                 .min_inner_size(800.0, 560.0)
                 .initialization_script(BRIDGE_JS)
                 .build()?;
+            #[cfg(windows)]
+            watch_for_lost_server(&_window);
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -266,7 +373,21 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_server;
+    use super::{normalize_server, server_page_failed};
+
+    #[test]
+    fn failed_server_pages_get_checked() {
+        let lan = Some("http://192.168.0.10:8090/");
+        let web = Some("https://media.example/silo/");
+        assert!(server_page_failed("http://192.168.0.10:8090/library", lan, false, 0));
+        assert!(server_page_failed("https://media.example/silo/", web, false, 502));
+        assert!(!server_page_failed("https://media.example/missing", web, false, 404));
+        assert!(!server_page_failed("https://media.example/", web, true, 0));
+        assert!(!server_page_failed("https://www.themoviedb.org/movie/1", web, false, 0));
+        assert!(!server_page_failed("http://tauri.localhost/index.html", lan, false, 0));
+        assert!(!server_page_failed("about:blank", lan, false, 0));
+        assert!(!server_page_failed("http://192.168.0.10:8090/", None, false, 0));
+    }
 
     #[test]
     fn adds_http_and_a_trailing_slash() {

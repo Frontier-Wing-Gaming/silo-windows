@@ -1,6 +1,6 @@
 [package]
 name = "silolux-windows"
-version = "0.2.0"
+version = "0.2.3"
 description = "Silolux: a Silo client for Windows with native mpv playback"
 edition = "2021"
 license = "MIT"
@@ -23,6 +23,11 @@ uuid = { version = "1", features = ["v4"] }
 url = "2"
 anyhow = "1"
 log = "0.4"
+
+# The WebView2 bindings Tauri itself uses: they report pages that fail to load (see lib.rs).
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"
 
 [profile.release]
 codegen-units = 1
